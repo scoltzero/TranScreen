@@ -31,20 +31,22 @@ struct TranslationOverlayView: View {
                 }
 
                 ForEach(blocks) { block in
-                    let w = max(30, edgeAwareWidth(for: block))
-                    let h = max(1, block.screenRect.height + 2)
+                    // Width is hard-locked to the OCR box width so translations
+                    // never extend past the original text region. Height is left
+                    // unbounded — the text wraps within maxW and grows downward
+                    // as needed, instead of overflowing horizontally off-screen.
+                    let maxW = max(30, block.screenRect.width)
+                    let xOffset = clamp(block.screenRect.minX,
+                                        min: 0,
+                                        max: max(0, geo.size.width - maxW))
+                    let yOffset = max(0, block.screenRect.minY - 1)
+
                     translationLabel(for: block)
-                        .frame(width: w, height: h, alignment: alignmentForBlock(block))
+                        .frame(width: maxW, alignment: .topLeading)
+                        .fixedSize(horizontal: false, vertical: true)
                         .background(backgroundForBlock(block))
                         .allowsHitTesting(false)
-                        // Anchor frame's top-leading corner at the OCR box's top-left
-                        // so the translation starts at exactly the original text's
-                        // start position (instead of being centered, which shifts
-                        // it whenever frame width ≠ OCR box width).
-                        .position(
-                            x: clamp(block.screenRect.minX + w / 2, min: 0, max: geo.size.width),
-                            y: clamp(block.screenRect.minY - 1 + h / 2, min: 0, max: geo.size.height)
-                        )
+                        .offset(x: xOffset, y: yOffset)
                 }
             }
         }
@@ -89,23 +91,6 @@ struct TranslationOverlayView: View {
     private func backgroundForBlock(_ block: TranslatedBlock) -> some View {
         RoundedRectangle(cornerRadius: 3)
             .fill(Color(red: block.bgRed, green: block.bgGreen, blue: block.bgBlue))
-    }
-
-    // MARK: - Edge-aware width
-
-    private func edgeAwareWidth(for block: TranslatedBlock) -> CGFloat {
-        guard let edges = block.lineEdges else { return block.screenRect.width }
-        let edgeWidth = edges.right - edges.left
-        let screenW = NSScreen.main?.frame.width ?? 1920
-        let captureW = block.captureRegion.width
-        let scale = captureW > 0 ? screenW / captureW : 1
-        return edgeWidth * captureW * scale / (NSScreen.main?.backingScaleFactor ?? 2)
-    }
-
-    private func alignmentForBlock(_ block: TranslatedBlock) -> Alignment {
-        // Translations are anchored top-leading at the OCR box's start corner; the
-        // frame width already reflects the actual ink extent (edgeAwareWidth).
-        return .topLeading
     }
 
     // MARK: - Helpers
