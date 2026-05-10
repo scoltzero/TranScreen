@@ -1,6 +1,29 @@
 import CoreGraphics
 import AppKit
 
+enum OverlayCoordinateSpace {
+    static func screen(containing rect: CGRect) -> NSScreen {
+        let center = CGPoint(x: rect.midX, y: rect.midY)
+        return NSScreen.screens.first { $0.frame.contains(center) }
+            ?? NSScreen.screens.first { $0.frame.intersects(rect) }
+            ?? NSScreen.main
+            ?? NSScreen.screens[0]
+    }
+
+    /// AppKit screen rect (origin at bottom-left) -> overlay-local SwiftUI rect
+    /// (origin at top-left). The overlay panel itself is sized to the screen.
+    static func localRect(for screenRect: CGRect, in screen: NSScreen? = nil) -> CGRect {
+        let resolvedScreen = screen ?? self.screen(containing: screenRect)
+        let frame = resolvedScreen.frame
+        return CGRect(
+            x: screenRect.minX - frame.minX,
+            y: frame.maxY - screenRect.maxY,
+            width: screenRect.width,
+            height: screenRect.height
+        )
+    }
+}
+
 struct CoordinateMapper {
     let screen: NSScreen
     let captureRegion: CGRect
@@ -8,20 +31,18 @@ struct CoordinateMapper {
     let scaleFactor: CGFloat
 
     init(
-        screen: NSScreen = NSScreen.main ?? NSScreen.screens[0],
+        screen: NSScreen? = nil,
         captureRegion: CGRect,
         imageSize: CGSize
     ) {
-        self.screen = screen
+        self.screen = screen ?? OverlayCoordinateSpace.screen(containing: captureRegion)
         self.captureRegion = captureRegion
         self.imageSize = imageSize
-        self.scaleFactor = screen.backingScaleFactor
+        self.scaleFactor = self.screen.backingScaleFactor
     }
 
-    // Vision 归一化 boundingBox (左下角原点) → SwiftUI 屏幕坐标 (左上角原点)
+    // Vision 归一化 boundingBox (左下角原点) → overlay-local SwiftUI 坐标 (左上角原点)
     func mapToSwiftUI(visionBox: CGRect) -> CGRect {
-        let screenHeight = screen.frame.height
-
         // 步骤1: 归一化 → 像素 (Vision Y 向上)
         let pixelX = visionBox.origin.x * imageSize.width
         let pixelY = visionBox.origin.y * imageSize.height
@@ -38,10 +59,11 @@ struct CoordinateMapper {
         let screenX = captureRegion.origin.x + pointX
         let screenY = captureRegion.origin.y + pointY
 
-        // 步骤4: AppKit → SwiftUI (Y 轴翻转)
-        let swiftuiY = screenHeight - screenY - pointH
+        // 步骤4: AppKit → overlay-local SwiftUI (Y 轴翻转)
+        let swiftuiX = screenX - screen.frame.minX
+        let swiftuiY = screen.frame.maxY - screenY - pointH
 
-        return CGRect(x: screenX, y: swiftuiY, width: pointW, height: pointH)
+        return CGRect(x: swiftuiX, y: swiftuiY, width: pointW, height: pointH)
     }
 
     /// Calculate adaptive font size from per-line OCR bounding boxes (Vision normalized).

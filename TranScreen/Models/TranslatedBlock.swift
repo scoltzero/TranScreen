@@ -9,6 +9,7 @@ struct TranslatedBlock: Identifiable, Sendable {
     var captureRegion: CGRect = .zero
     let isVertical: Bool
     var screenRect: CGRect = .zero
+    var screenLineRects: [CGRect] = []
     var fontSize: CGFloat = 14
     var bgRed: Double = 1.0
     var bgGreen: Double = 1.0

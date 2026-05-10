@@ -3,17 +3,18 @@ import Foundation
 struct DeepLEngine: TranslationEngine {
     let engineType = EngineType.deepL
     let configID: UUID
+    let apiKey: String
 
     init(config: EngineConfig) throws {
         self.configID = config.id
-        // API Key 改为按需加载
+        self.apiKey = config.apiKey
     }
 
     private func loadAPIKey() throws -> (key: String, isFree: Bool) {
-        guard let key = try? KeychainHelper.load(key: configID.uuidString), !key.isEmpty else {
+        guard !apiKey.isEmpty else {
             throw TranslationError.noAPIKey
         }
-        return (key, key.hasSuffix(":fx"))
+        return (apiKey, apiKey.hasSuffix(":fx"))
     }
 
     private func endpoint(isFree: Bool) -> String {

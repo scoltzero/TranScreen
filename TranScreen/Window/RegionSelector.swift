@@ -52,14 +52,32 @@ final class RegionSelectorView: NSView {
         super.draw(dirtyRect)
         guard isDragging, !currentRect.isEmpty else { return }
 
-        // 选区边框
-        NSColor.white.withAlphaComponent(0.8).setStroke()
-        let borderPath = NSBezierPath(rect: currentRect)
-        borderPath.lineWidth = 1.5
-        borderPath.stroke()
+        drawCornerBorder(in: currentRect)
+    }
 
-        // 选区内部透明 cutout
-        NSColor.clear.set()
-        NSBezierPath(rect: currentRect).fill()
+    private func drawCornerBorder(in rect: NSRect) {
+        let cornerLen = min(max(min(rect.width, rect.height) * 0.16, 14), 28)
+        let path = NSBezierPath()
+
+        path.move(to: NSPoint(x: rect.minX, y: rect.maxY - cornerLen))
+        path.line(to: NSPoint(x: rect.minX, y: rect.maxY))
+        path.line(to: NSPoint(x: rect.minX + cornerLen, y: rect.maxY))
+
+        path.move(to: NSPoint(x: rect.maxX - cornerLen, y: rect.maxY))
+        path.line(to: NSPoint(x: rect.maxX, y: rect.maxY))
+        path.line(to: NSPoint(x: rect.maxX, y: rect.maxY - cornerLen))
+
+        path.move(to: NSPoint(x: rect.minX, y: rect.minY + cornerLen))
+        path.line(to: NSPoint(x: rect.minX, y: rect.minY))
+        path.line(to: NSPoint(x: rect.minX + cornerLen, y: rect.minY))
+
+        path.move(to: NSPoint(x: rect.maxX - cornerLen, y: rect.minY))
+        path.line(to: NSPoint(x: rect.maxX, y: rect.minY))
+        path.line(to: NSPoint(x: rect.maxX, y: rect.minY + cornerLen))
+
+        NSColor.black.withAlphaComponent(0.92).setStroke()
+        path.lineWidth = 1.4
+        path.lineCapStyle = .square
+        path.stroke()
     }
 }

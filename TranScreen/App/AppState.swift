@@ -1,6 +1,8 @@
 import SwiftUI
 import ScreenCaptureKit
 import NaturalLanguage
+import ImageIO
+import UniformTypeIdentifiers
 
 @MainActor
 final class AppState: ObservableObject {
@@ -143,31 +145,64 @@ final class AppState: ObservableObject {
         NSPasteboard.general.setString(text, forType: .string)
     }
 
-    func saveScreenshot(of region: CGRect) {
+    @discardableResult
+    func saveScreenshot(of region: CGRect) -> Bool {
         guard let cgImage = lastCapturedImage else {
             lastError = "无可保存的截图"
-            return
+            return false
         }
-        // LSUIElement apps with .nonactivatingPanel must explicitly activate
-        // before NSSavePanel will appear in front of the user.
-        NSApp.activate(ignoringOtherApps: true)
-        Task { @MainActor in
-            let panel = NSSavePanel()
-            panel.allowedContentTypes = [.png]
-            let formatter = DateFormatter()
-            formatter.dateFormat = "yyyyMMdd_HHmmss"
-            panel.nameFieldStringValue = "TranScreen_\(formatter.string(from: Date())).png"
-            let response: NSApplication.ModalResponse = await withCheckedContinuation { cont in
-                panel.begin { cont.resume(returning: $0) }
-            }
-            guard response == .OK, let url = panel.url else { return }
-            guard let dest = CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil) else {
-                self.lastError = "无法创建图片输出"
-                return
-            }
-            CGImageDestinationAddImage(dest, cgImage, nil)
-            CGImageDestinationFinalize(dest)
+
+        let imageToSave: CGImage
+        if showingOriginal || translatedBlocks.isEmpty {
+            imageToSave = cgImage
+        } else if let rendered = renderDisplayedRegionScreenshot(baseImage: cgImage, region: region) {
+            imageToSave = rendered
+        } else {
+            lastError = "无法生成译文截图"
+            return false
         }
+
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyyMMdd_HHmmss"
+        let suffix = showingOriginal ? "original" : "translated"
+        let filename = "TranScreen_\(suffix)_\(formatter.string(from: Date())).png"
+        let downloadsURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads", isDirectory: true)
+        let url = downloadsURL.appendingPathComponent(filename)
+
+        guard let dest = CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil) else {
+            lastError = "无法创建图片输出"
+            return false
+        }
+        CGImageDestinationAddImage(dest, imageToSave, nil)
+        if CGImageDestinationFinalize(dest) {
+            lastError = nil
+            return true
+        } else {
+            lastError = "截图保存失败"
+            return false
+        }
+    }
+
+    private func renderDisplayedRegionScreenshot(baseImage: CGImage, region: CGRect) -> CGImage? {
+        let imageSize = CGSize(width: region.width, height: region.height)
+        let scale = CGFloat(baseImage.width) / max(region.width, 1)
+        let nsImage = NSImage(cgImage: baseImage, size: imageSize)
+        let screen = OverlayCoordinateSpace.screen(containing: region)
+        let localRegion = OverlayCoordinateSpace.localRect(for: region, in: screen)
+        let content = DisplayedRegionScreenshotView(
+            baseImage: nsImage,
+            blocks: translatedBlocks,
+            showingOriginal: showingOriginal,
+            localRegion: localRegion
+        )
+        .frame(width: imageSize.width, height: imageSize.height)
+
+        let renderer = ImageRenderer(content: content)
+        renderer.proposedSize = ProposedViewSize(imageSize)
+        renderer.scale = scale
+        renderer.isOpaque = true
+        return renderer.cgImage
     }
 
     // MARK: - 核心 Pipeline：选区截图翻译
@@ -213,8 +248,8 @@ final class AppState: ObservableObject {
 
                 for textRegion in regions {
                     let merged = textMerger.merge(blocks: textRegion.blocks)
-                    let edges = edgeDetector.detectLineEdges(blocks: textRegion.blocks)
                     for mb in merged {
+                        let edges = edgeDetector.detectLineEdges(blocks: mb.lines)
                         if let e = edges { blockEdges[mb.id] = e }
                     }
                     allMerged.append(contentsOf: merged)
@@ -264,6 +299,7 @@ final class AppState: ObservableObject {
                         // body get distinct sizes because their line heights differ.
                         let lineBoxes = meta?.lineBoxes ?? [b.visionBoundingBox]
                         b.fontSize = mapper.adaptiveFontSize(forLineBoxes: lineBoxes)
+                        b.screenLineRects = lineBoxes.map { mapper.mapToSwiftUI(visionBox: $0) }
 
                         // Background color (already sampled above)
                         let bg = meta?.bg ?? (1, 1, 1)
@@ -299,6 +335,7 @@ final class AppState: ObservableObject {
                         )
                         b.captureRegion = region
                         b.screenRect = mapper.mapToSwiftUI(visionBox: b.visionBoundingBox)
+                        b.screenLineRects = mb.lines.map { mapper.mapToSwiftUI(visionBox: $0.boundingBox) }
                         let bg = blockBg[mb.id] ?? (1, 1, 1)
                         b.bgRed = bg.0; b.bgGreen = bg.1; b.bgBlue = bg.2
                         return b
@@ -365,6 +402,7 @@ final class AppState: ObservableObject {
                 b.captureRegion = screenFrame
                 b.screenRect = mapper.mapToSwiftUI(visionBox: b.visionBoundingBox)
                 let lineBoxes = lineBoxesByText[block.originalText] ?? [block.visionBoundingBox]
+                b.screenLineRects = lineBoxes.map { mapper.mapToSwiftUI(visionBox: $0) }
                 b.fontSize = mapper.adaptiveFontSize(forLineBoxes: lineBoxes)
                 let (r, g, bl) = BackgroundSampler.sampleBackgroundColor(image: image, normalizedBox: b.visionBoundingBox)
                 b.bgRed = r; b.bgGreen = g; b.bgBlue = bl
@@ -415,5 +453,85 @@ final class AppState: ObservableObject {
         case .vietnamese: return "vi"
         default: return lang.rawValue
         }
+    }
+}
+
+private struct DisplayedRegionScreenshotView: View {
+    let baseImage: NSImage
+    let blocks: [TranslatedBlock]
+    let showingOriginal: Bool
+    let localRegion: CGRect
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            Image(nsImage: baseImage)
+                .resizable()
+                .interpolation(.high)
+                .frame(width: localRegion.width, height: localRegion.height)
+
+            ForEach(blocks) { block in
+                let maxW = max(30, block.screenRect.width)
+                let xOffset = clamp(
+                    block.screenRect.minX - localRegion.minX,
+                    min: 0,
+                    max: max(0, localRegion.width - maxW)
+                )
+                let yOffset = max(0, block.screenRect.minY - localRegion.minY - 1)
+
+                ForEach(Array(textCoverRects(for: block).enumerated()), id: \.offset) { _, rect in
+                    background(for: block)
+                        .frame(width: rect.width, height: rect.height)
+                        .offset(x: rect.minX - localRegion.minX, y: rect.minY - localRegion.minY)
+                }
+
+                translatedLabel(for: block)
+                    .frame(width: maxW, alignment: .topLeading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .background(background(for: block))
+                    .offset(x: xOffset, y: yOffset)
+            }
+        }
+        .frame(width: localRegion.width, height: localRegion.height, alignment: .topLeading)
+        .clipped()
+    }
+
+    @ViewBuilder
+    private func translatedLabel(for block: TranslatedBlock) -> some View {
+        let displayText = showingOriginal
+            ? block.originalText
+            : (block.translatedText.isEmpty ? block.originalText : block.translatedText)
+
+        Text(displayText.isEmpty ? "[空]" : displayText)
+            .font(.system(size: block.fontSize, weight: .regular, design: .default))
+            .foregroundStyle(textColor(for: block))
+            .lineLimit(nil)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 4)
+            .padding(.vertical, 2)
+            .rotationEffect(block.isVertical ? .degrees(90) : .degrees(0))
+    }
+
+    private func background(for block: TranslatedBlock) -> some View {
+        RoundedRectangle(cornerRadius: 3)
+            .fill(Color(red: block.bgRed, green: block.bgGreen, blue: block.bgBlue))
+    }
+
+    private func textCoverRects(for block: TranslatedBlock) -> [CGRect] {
+        let rects = block.screenLineRects.isEmpty ? [block.screenRect] : block.screenLineRects
+        return rects.map {
+            $0.insetBy(dx: -3, dy: -2)
+        }
+    }
+
+    private func textColor(for block: TranslatedBlock) -> Color {
+        let hasTextSample = block.textR > 0.01 || block.textG > 0.01 || block.textB > 0.01
+        if hasTextSample {
+            return Color(red: block.textR, green: block.textG, blue: block.textB)
+        }
+        return block.isLightBackground ? .black : .white
+    }
+
+    private func clamp(_ value: CGFloat, min lower: CGFloat, max upper: CGFloat) -> CGFloat {
+        Swift.max(lower, Swift.min(upper, value))
     }
 }

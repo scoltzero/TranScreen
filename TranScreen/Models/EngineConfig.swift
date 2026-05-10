@@ -4,8 +4,8 @@ import Foundation
 enum EngineType: String, Codable, CaseIterable, Identifiable {
     case apple = "apple"
     case openAICompatible = "openai_compatible"
-    case anthropic = "anthropic"
-    case gemini = "gemini"
+    case anthropicCompatible = "anthropic_compatible"
+    case googleCompatible = "google_compatible"
     case deepL = "deepl"
     case ollama = "ollama"
 
@@ -15,37 +15,45 @@ enum EngineType: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .apple: return "Apple 翻译（离线）"
         case .openAICompatible: return "OpenAI Compatible"
-        case .anthropic: return "Anthropic Claude"
-        case .gemini: return "Google Gemini"
+        case .anthropicCompatible: return "Anthropic Compatible"
+        case .googleCompatible: return "Google Compatible"
         case .deepL: return "DeepL"
         case .ollama: return "Ollama（本地）"
         }
     }
 
-    var requiresAPIKey: Bool {
+    var supportsAPIKey: Bool {
         switch self {
         case .apple, .ollama: return false
         default: return true
         }
     }
 
+    var requiresAPIKey: Bool {
+        switch self {
+        case .deepL: return true
+        case .apple, .openAICompatible, .anthropicCompatible, .googleCompatible, .ollama:
+            return false
+        }
+    }
+
     var requiresEndpoint: Bool {
         switch self {
-        case .openAICompatible, .ollama: return true
+        case .openAICompatible, .anthropicCompatible, .googleCompatible, .ollama: return true
         default: return false
         }
     }
 
     var requiresModelID: Bool {
         switch self {
-        case .openAICompatible, .anthropic, .gemini, .ollama: return true
+        case .openAICompatible, .anthropicCompatible, .googleCompatible, .ollama: return true
         default: return false
         }
     }
 
     var supportsTemperature: Bool {
         switch self {
-        case .openAICompatible, .anthropic, .gemini, .ollama: return true
+        case .openAICompatible, .anthropicCompatible, .googleCompatible, .ollama: return true
         default: return false
         }
     }
@@ -62,6 +70,7 @@ final class EngineConfig {
     var engineTypeRaw: String
     var endpointURL: String?
     var modelID: String?
+    var apiKey: String = ""
     var isEnabled: Bool
     var sortOrder: Int
     var createdAt: Date
@@ -70,7 +79,13 @@ final class EngineConfig {
     var customPrompt: String = ""
 
     var engineType: EngineType {
-        get { EngineType(rawValue: engineTypeRaw) ?? .openAICompatible }
+        get {
+            switch engineTypeRaw {
+            case "anthropic": return .anthropicCompatible
+            case "gemini": return .googleCompatible
+            default: return EngineType(rawValue: engineTypeRaw) ?? .openAICompatible
+            }
+        }
         set { engineTypeRaw = newValue.rawValue }
     }
 
@@ -79,6 +94,7 @@ final class EngineConfig {
         engineType: EngineType,
         endpointURL: String? = nil,
         modelID: String? = nil,
+        apiKey: String = "",
         isEnabled: Bool = true,
         sortOrder: Int = 0,
         temperature: Double = 0.3,
@@ -90,6 +106,7 @@ final class EngineConfig {
         self.engineTypeRaw = engineType.rawValue
         self.endpointURL = endpointURL
         self.modelID = modelID
+        self.apiKey = apiKey
         self.isEnabled = isEnabled
         self.sortOrder = sortOrder
         self.createdAt = Date()

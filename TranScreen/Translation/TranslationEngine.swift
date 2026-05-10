@@ -6,6 +6,7 @@ enum TranslationError: Error, LocalizedError {
     case networkError(Error)
     case rateLimited
     case invalidResponse(String)
+    case missingModelID
     case allEnginesFailed
     case notAvailable
 
@@ -16,6 +17,7 @@ enum TranslationError: Error, LocalizedError {
         case .networkError(let e): return "网络错误: \(e.localizedDescription)"
         case .rateLimited: return "请求过于频繁"
         case .invalidResponse(let s): return "响应格式错误: \(s)"
+        case .missingModelID: return "未配置 Model ID"
         case .allEnginesFailed: return "所有翻译引擎均失败"
         case .notAvailable: return "引擎不可用"
         }

@@ -76,10 +76,10 @@ final class TranslationManager: ObservableObject {
             return AppleTranslationEngine(configID: config.id)
         case .openAICompatible:
             return try OpenAICompatibleEngine(config: config)
-        case .anthropic:
-            return try AnthropicEngine(config: config)
-        case .gemini:
-            return try GeminiEngine(config: config)
+        case .anthropicCompatible:
+            return try AnthropicCompatibleEngine(config: config)
+        case .googleCompatible:
+            return try GoogleCompatibleEngine(config: config)
         case .deepL:
             return try DeepLEngine(config: config)
         case .ollama:

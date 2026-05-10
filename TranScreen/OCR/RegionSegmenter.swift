@@ -152,7 +152,9 @@ struct RegionSegmenter {
         var groups: [[TextBlock]] = []
         var current: [TextBlock] = [sorted[0]]
         for i in 1..<sorted.count {
-            if gaps[i - 1] > splitThreshold {
+            let prev = sorted[i - 1]
+            let curr = sorted[i]
+            if gaps[i - 1] > splitThreshold || shouldSplitLayout(prev: prev, curr: curr) {
                 groups.append(current)
                 current = [sorted[i]]
             } else {
@@ -162,5 +164,28 @@ struct RegionSegmenter {
         groups.append(current)
 
         return groups.map { TextRegion(blocks: $0, fontSizeCategory: category) }
+    }
+
+    private func shouldSplitLayout(prev: TextBlock, curr: TextBlock) -> Bool {
+        let verticalOverlap = min(prev.boundingBox.maxY, curr.boundingBox.maxY)
+            - max(prev.boundingBox.minY, curr.boundingBox.minY)
+        let minHeight = min(prev.boundingBox.height, curr.boundingBox.height)
+        let sameVisualRow = minHeight > 0 && verticalOverlap > minHeight * 0.45
+
+        if sameVisualRow {
+            let horizontalGap = max(
+                max(prev.boundingBox.minX, curr.boundingBox.minX) - min(prev.boundingBox.maxX, curr.boundingBox.maxX),
+                0
+            )
+            return horizontalGap > minHeight * 2.0
+        }
+
+        return !hasHorizontalOverlap(prev.boundingBox, curr.boundingBox)
+    }
+
+    private func hasHorizontalOverlap(_ a: CGRect, _ b: CGRect) -> Bool {
+        let overlapWidth = min(a.maxX, b.maxX) - max(a.minX, b.minX)
+        guard overlapWidth > 0 else { return false }
+        return overlapWidth > min(a.width, b.width) * 0.2
     }
 }

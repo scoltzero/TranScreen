@@ -14,11 +14,12 @@ struct TranslationToolbar: View {
     @Binding var showingOriginal: Bool
     let region: CGRect
     let onCopy: () -> Void
-    let onSaveImage: () -> Void
+    let onSaveImage: () -> Bool
     let onDismiss: () -> Void
 
     @State private var size: CGSize = .zero
     @State private var copied: Bool = false
+    @State private var saved: Bool = false
 
     var body: some View {
         HStack(spacing: 6) {
@@ -49,9 +50,19 @@ struct TranslationToolbar: View {
             .buttonStyle(.borderless)
             .help("复制当前显示的文本")
 
-            Button(action: onSaveImage) {
-                Image(systemName: "photo")
-                Text("截图")
+            Button {
+                if onSaveImage() {
+                    withAnimation(.easeOut(duration: 0.15)) { saved = true }
+                    Task {
+                        try? await Task.sleep(for: .seconds(1.2))
+                        withAnimation(.easeOut(duration: 0.2)) { saved = false }
+                    }
+                }
+            } label: {
+                Image(systemName: saved ? "checkmark" : "photo")
+                    .foregroundStyle(saved ? .green : .primary)
+                Text(saved ? "已截图" : "截图")
+                    .foregroundStyle(saved ? .green : .primary)
             }
             .buttonStyle(.borderless)
             .help("保存当前画面为 PNG")
@@ -95,23 +106,24 @@ struct TranslationToolbar: View {
     /// Anchor: toolbar's top-right corner = selection's bottom-right corner + 4pt gap.
     /// `.position` takes the view's center, so we offset by half-size.
     private var toolbarCenter: CGPoint {
-        let screen = NSScreen.main ?? NSScreen.screens[0]
+        let screen = OverlayCoordinateSpace.screen(containing: region)
+        let localRegion = OverlayCoordinateSpace.localRect(for: region, in: screen)
         let screenH = screen.frame.height
         let screenW = screen.frame.width
         let w = max(size.width, 1)
         let h = max(size.height, 1)
         let gap: CGFloat = 4
 
-        var centerX = region.maxX - w / 2
-        var centerY = region.maxY + gap + h / 2
+        var centerX = localRegion.maxX - w / 2
+        var centerY = localRegion.maxY + gap + h / 2
 
         // Below selection out of screen → flip above selection (bottom edge of toolbar = top of region).
-        if region.maxY + gap + h > screenH {
-            centerY = region.minY - gap - h / 2
+        if localRegion.maxY + gap + h > screenH {
+            centerY = localRegion.minY - gap - h / 2
         }
         // Both above and below clipped → tuck inside selection's top-right.
         if centerY - h / 2 < 0 {
-            centerY = region.minY + gap + h / 2
+            centerY = localRegion.minY + gap + h / 2
         }
         // Right edge clamp (defensive — selection is created on-screen anyway).
         if centerX + w / 2 > screenW {

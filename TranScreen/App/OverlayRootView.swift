@@ -45,6 +45,7 @@ struct OverlayRootView: View {
                     debugCapturedSize: appState.debugCapturedSize,
                     debugOCRCount: appState.debugOCRCount
                 )
+                SelectionCornerBorderView(screenRegion: region)
                 if appState.isProcessing {
                     ProgressView()
                         .progressViewStyle(.circular)

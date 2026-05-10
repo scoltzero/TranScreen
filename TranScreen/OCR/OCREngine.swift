@@ -24,7 +24,7 @@ struct OCREngine: Sendable {
         let handler = VNImageRequestHandler(cgImage: image, orientation: .up, options: [:])
         try handler.perform([request])
 
-        let observations = (request.results as? [VNRecognizedTextObservation]) ?? []
+        let observations = request.results ?? []
 
         #if DEBUG
         print("[OCR] image=\(image.width)x\(image.height) observations=\(observations.count)")

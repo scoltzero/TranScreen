@@ -41,6 +41,13 @@ struct TranslationOverlayView: View {
                                         max: max(0, geo.size.width - maxW))
                     let yOffset = max(0, block.screenRect.minY - 1)
 
+                    ForEach(Array(textCoverRects(for: block).enumerated()), id: \.offset) { _, rect in
+                        backgroundForBlock(block)
+                            .frame(width: rect.width, height: rect.height)
+                            .offset(x: rect.minX, y: rect.minY)
+                            .allowsHitTesting(false)
+                    }
+
                     translationLabel(for: block)
                         .frame(width: maxW, alignment: .topLeading)
                         .fixedSize(horizontal: false, vertical: true)
@@ -91,6 +98,13 @@ struct TranslationOverlayView: View {
     private func backgroundForBlock(_ block: TranslatedBlock) -> some View {
         RoundedRectangle(cornerRadius: 3)
             .fill(Color(red: block.bgRed, green: block.bgGreen, blue: block.bgBlue))
+    }
+
+    private func textCoverRects(for block: TranslatedBlock) -> [CGRect] {
+        let rects = block.screenLineRects.isEmpty ? [block.screenRect] : block.screenLineRects
+        return rects.map {
+            $0.insetBy(dx: -3, dy: -2)
+        }
     }
 
     // MARK: - Helpers
@@ -159,5 +173,55 @@ struct RegionMaskView: View {
             context.stroke(path, with: .color(color), lineWidth: lineWidth)
         }
         .allowsHitTesting(false)
+    }
+}
+
+struct SelectionCornerBorderView: View {
+    let screenRegion: CGRect
+
+    var body: some View {
+        let screen = OverlayCoordinateSpace.screen(containing: screenRegion)
+        let region = OverlayCoordinateSpace.localRect(for: screenRegion, in: screen)
+
+        Canvas { context, _ in
+            let cornerLen = min(max(min(region.width, region.height) * 0.16, 14), 28)
+            let lineWidth: CGFloat = 1.4
+            let color = Color.black.opacity(0.92)
+
+            context.stroke(cornerPath(
+                from: CGPoint(x: region.minX, y: region.minY + cornerLen),
+                through: CGPoint(x: region.minX, y: region.minY),
+                to: CGPoint(x: region.minX + cornerLen, y: region.minY)
+            ), with: .color(color), lineWidth: lineWidth)
+            context.stroke(cornerPath(
+                from: CGPoint(x: region.maxX - cornerLen, y: region.minY),
+                through: CGPoint(x: region.maxX, y: region.minY),
+                to: CGPoint(x: region.maxX, y: region.minY + cornerLen)
+            ), with: .color(color), lineWidth: lineWidth)
+            context.stroke(cornerPath(
+                from: CGPoint(x: region.minX, y: region.maxY - cornerLen),
+                through: CGPoint(x: region.minX, y: region.maxY),
+                to: CGPoint(x: region.minX + cornerLen, y: region.maxY)
+            ), with: .color(color), lineWidth: lineWidth)
+            context.stroke(cornerPath(
+                from: CGPoint(x: region.maxX - cornerLen, y: region.maxY),
+                through: CGPoint(x: region.maxX, y: region.maxY),
+                to: CGPoint(x: region.maxX, y: region.maxY - cornerLen)
+            ), with: .color(color), lineWidth: lineWidth)
+        }
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
+    }
+
+    private func cornerPath(
+        from start: CGPoint,
+        through corner: CGPoint,
+        to end: CGPoint
+    ) -> Path {
+        var path = Path()
+        path.move(to: start)
+        path.addLine(to: corner)
+        path.addLine(to: end)
+        return path
     }
 }

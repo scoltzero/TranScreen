@@ -5,6 +5,7 @@ struct OpenAICompatibleEngine: TranslationEngine {
     let configID: UUID
     let endpoint: String
     let modelID: String
+    let apiKey: String
     let temperature: Double
     let systemPrompt: String
     let customPrompt: String
@@ -14,15 +15,24 @@ struct OpenAICompatibleEngine: TranslationEngine {
         guard let ep = config.endpointURL, !ep.isEmpty else {
             throw TranslationError.invalidEndpoint
         }
+        guard let model = config.modelID, !model.isEmpty else {
+            throw TranslationError.missingModelID
+        }
         self.endpoint = ep
-        self.modelID = config.modelID ?? "gpt-4o-mini"
+        self.modelID = model
+        self.apiKey = config.apiKey
         self.temperature = config.temperature
         self.systemPrompt = config.systemPrompt
         self.customPrompt = config.customPrompt
     }
 
-    private func loadAPIKey() -> String {
-        (try? KeychainHelper.load(key: configID.uuidString)) ?? ""
+    private var chatCompletionsEndpoint: String {
+        let trimmed = endpoint.trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        if trimmed.hasSuffix("/chat/completions") {
+            return trimmed
+        }
+        return "\(trimmed)/chat/completions"
     }
 
     private func buildSystemPrompt(from sourceLang: String, to targetLang: String) -> String {
@@ -35,7 +45,6 @@ struct OpenAICompatibleEngine: TranslationEngine {
     }
 
     func translate(texts: [String], from sourceLang: String, to targetLang: String) async throws -> [String] {
-        let apiKey = loadAPIKey()
         let numbered = texts.enumerated().map { "\($0.offset + 1). \($0.element)" }.joined(separator: "\n")
         let body: [String: Any] = [
             "model": modelID,
@@ -46,18 +55,17 @@ struct OpenAICompatibleEngine: TranslationEngine {
             "temperature": temperature,
             "max_tokens": 2048
         ]
-        let responseText = try await postJSON(to: "\(endpoint)/chat/completions", body: body, apiKey: apiKey)
+        let responseText = try await postJSON(to: chatCompletionsEndpoint, body: body, apiKey: apiKey)
         return parseNumberedResponse(responseText, expectedCount: texts.count)
     }
 
     func testConnection() async throws -> Bool {
-        let apiKey = loadAPIKey()
         let body: [String: Any] = [
             "model": modelID,
             "messages": [["role": "user", "content": "Say OK"]],
             "max_tokens": 5
         ]
-        _ = try await postJSON(to: "\(endpoint)/chat/completions", body: body, apiKey: apiKey)
+        _ = try await postJSON(to: chatCompletionsEndpoint, body: body, apiKey: apiKey)
         return true
     }
 

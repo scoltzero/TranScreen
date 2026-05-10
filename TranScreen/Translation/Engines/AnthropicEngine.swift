@@ -1,29 +1,47 @@
 import Foundation
 
-struct AnthropicEngine: TranslationEngine {
-    let engineType = EngineType.anthropic
+struct AnthropicCompatibleEngine: TranslationEngine {
+    let engineType = EngineType.anthropicCompatible
     let configID: UUID
+    let endpoint: String
     let modelID: String
+    let apiKey: String
     let temperature: Double
     let systemPrompt: String
     let customPrompt: String
 
-    private static let endpoint = "https://api.anthropic.com/v1/messages"
     private static let apiVersion = "2023-06-01"
 
     init(config: EngineConfig) throws {
         self.configID = config.id
-        self.modelID = config.modelID ?? "claude-haiku-4-5-20251001"
+        guard let ep = config.endpointURL, !ep.isEmpty else {
+            throw TranslationError.invalidEndpoint
+        }
+        guard let model = config.modelID, !model.isEmpty else {
+            throw TranslationError.missingModelID
+        }
+        self.endpoint = Self.messagesEndpoint(from: ep)
+        self.modelID = model
+        self.apiKey = config.apiKey
         self.temperature = config.temperature
         self.systemPrompt = config.systemPrompt
         self.customPrompt = config.customPrompt
     }
 
     private func loadAPIKey() throws -> String {
-        guard let key = try? KeychainHelper.load(key: configID.uuidString), !key.isEmpty else {
-            throw TranslationError.noAPIKey
+        return apiKey
+    }
+
+    private static func messagesEndpoint(from endpoint: String) -> String {
+        let trimmed = endpoint.trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        if trimmed.hasSuffix("/messages") {
+            return trimmed
         }
-        return key
+        if trimmed.hasSuffix("/v1") {
+            return "\(trimmed)/messages"
+        }
+        return "\(trimmed)/v1/messages"
     }
 
     private func buildSystemPrompt(from sourceLang: String, to targetLang: String) -> String {
@@ -46,18 +64,25 @@ struct AnthropicEngine: TranslationEngine {
             "messages": [["role": "user", "content": numbered]]
         ]
 
-        guard let url = URL(string: Self.endpoint) else { throw TranslationError.invalidEndpoint }
+        guard let url = URL(string: endpoint) else { throw TranslationError.invalidEndpoint }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        if !apiKey.isEmpty {
+            request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        }
         request.setValue(Self.apiVersion, forHTTPHeaderField: "anthropic-version")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         request.timeoutInterval = 30
 
         let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+        guard let http = response as? HTTPURLResponse else {
             throw TranslationError.networkError(URLError(.badServerResponse))
+        }
+        guard http.statusCode == 200 else {
+            let body = String(data: data, encoding: .utf8) ?? ""
+            throw TranslationError.invalidResponse("HTTP \(http.statusCode): \(body)")
         }
 
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],

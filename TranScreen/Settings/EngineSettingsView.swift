@@ -64,7 +64,6 @@ struct EngineSettingsView: View {
     private func deleteEngines(at indexSet: IndexSet) {
         for i in indexSet {
             let engine = engines[i]
-            try? KeychainHelper.delete(key: engine.id.uuidString)
             modelContext.delete(engine)
         }
         try? modelContext.save()
@@ -98,8 +97,8 @@ struct EngineSettingsView: View {
         switch config.engineType {
         case .apple: return AppleTranslationEngine(configID: config.id)
         case .openAICompatible: return try OpenAICompatibleEngine(config: config)
-        case .anthropic: return try AnthropicEngine(config: config)
-        case .gemini: return try GeminiEngine(config: config)
+        case .anthropicCompatible: return try AnthropicCompatibleEngine(config: config)
+        case .googleCompatible: return try GoogleCompatibleEngine(config: config)
         case .deepL: return try DeepLEngine(config: config)
         case .ollama: return try OllamaEngine(config: config)
         }
@@ -148,8 +147,8 @@ struct EngineRow: View {
         switch type {
         case .apple: return "apple.logo"
         case .openAICompatible: return "bolt.circle"
-        case .anthropic: return "brain.head.profile"
-        case .gemini: return "sparkles"
+        case .anthropicCompatible: return "brain.head.profile"
+        case .googleCompatible: return "sparkles"
         case .deepL: return "globe"
         case .ollama: return "desktopcomputer"
         }
@@ -183,15 +182,12 @@ struct EngineEditSheet: View {
                 }
                 .onChange(of: selectedType) { _, t in
                     if displayName.isEmpty { displayName = t.displayName }
-                    // 切换类型时自动填充该服务商的常用默认值
+                    // Compatible engines intentionally do not prefill official providers.
                     switch t {
                     case .openAICompatible:
-                        if endpointURL.isEmpty { endpointURL = "https://api.openai.com/v1" }
-                        if modelID.isEmpty { modelID = "gpt-4o-mini" }
-                    case .anthropic:
-                        if modelID.isEmpty { modelID = "claude-haiku-4-5-20251001" }
-                    case .gemini:
-                        if modelID.isEmpty { modelID = "gemini-1.5-flash" }
+                        break
+                    case .anthropicCompatible, .googleCompatible:
+                        break
                     case .ollama:
                         if endpointURL.isEmpty { endpointURL = "http://localhost:11434" }
                         if modelID.isEmpty { modelID = "llama3" }
@@ -203,17 +199,16 @@ struct EngineEditSheet: View {
                 TextField("显示名称", text: $displayName)
 
                 if selectedType.requiresEndpoint {
-                    TextField(selectedType == .ollama ? "Endpoint (默认: http://localhost:11434)" : "Endpoint URL",
-                              text: $endpointURL)
+                    TextField(endpointPlaceholder, text: $endpointURL)
                 }
 
                 if selectedType.requiresModelID {
                     TextField("Model ID", text: $modelID).help(modelIDHint)
                 }
 
-                if selectedType.requiresAPIKey {
-                    SecureField("API Key", text: $apiKey)
-                    Text("API Key 将安全存储在系统 Keychain 中")
+                if selectedType.supportsAPIKey {
+                    SecureField(selectedType.requiresAPIKey ? "API Key" : "API Key（可选）", text: $apiKey)
+                    Text(apiKeyHelpText)
                         .font(.caption).foregroundStyle(.secondary)
                 }
 
@@ -253,7 +248,7 @@ struct EngineEditSheet: View {
             HStack {
                 Button("取消") { dismiss() }.keyboardShortcut(.cancelAction)
                 Spacer()
-                Button("保存") { save() }.keyboardShortcut(.defaultAction).disabled(displayName.isEmpty)
+                Button("保存") { save() }.keyboardShortcut(.defaultAction).disabled(!canSave)
             }
             .padding()
         }
@@ -263,12 +258,47 @@ struct EngineEditSheet: View {
 
     private var modelIDHint: String {
         switch selectedType {
-        case .openAICompatible: return "如: gpt-4o-mini, gpt-4o"
-        case .anthropic: return "如: claude-haiku-4-5-20251001, claude-sonnet-4-6"
-        case .gemini: return "如: gemini-1.5-flash, gemini-1.5-pro"
+        case .openAICompatible: return "填写你的 OpenAI-compatible 服务支持的模型名"
+        case .anthropicCompatible: return "填写你的 Anthropic-compatible 服务支持的模型名"
+        case .googleCompatible: return "填写你的 Google-compatible 服务支持的模型名"
         case .ollama: return "如: llama3, mistral, qwen2"
         default: return ""
         }
+    }
+
+    private var canSave: Bool {
+        let hasName = !displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let hasEndpoint = !endpointURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let hasModel = !modelID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let hasRequiredKey = !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+
+        if !hasName { return false }
+        if selectedType.requiresEndpoint && !hasEndpoint { return false }
+        if selectedType.requiresModelID && !hasModel { return false }
+        if selectedType.requiresAPIKey && !hasRequiredKey { return false }
+        return true
+    }
+
+    private var endpointPlaceholder: String {
+        switch selectedType {
+        case .openAICompatible:
+            return "Endpoint URL（如: https://your-host/v1）"
+        case .anthropicCompatible:
+            return "Endpoint URL（如: https://your-host/v1 或 .../v1/messages）"
+        case .googleCompatible:
+            return "Endpoint URL（如: https://your-host/v1beta）"
+        case .ollama:
+            return "Endpoint (默认: http://localhost:11434)"
+        default:
+            return "Endpoint URL"
+        }
+    }
+
+    private var apiKeyHelpText: String {
+        if selectedType.requiresAPIKey {
+            return "API Key 将保存在本机应用配置中，不会请求系统钥匙串权限"
+        }
+        return "API Key 可留空，适合本地服务或已在端点侧处理鉴权的兼容接口"
     }
 
     private func loadExisting() {
@@ -281,7 +311,7 @@ struct EngineEditSheet: View {
         temperature = engine.temperature
         systemPrompt = engine.systemPrompt
         customPrompt = engine.customPrompt
-        apiKey = (try? KeychainHelper.load(key: engine.id.uuidString)) ?? ""
+        apiKey = engine.apiKey
     }
 
     private func save() {
@@ -291,6 +321,7 @@ struct EngineEditSheet: View {
             existing.engineType = selectedType
             existing.endpointURL = endpointURL.isEmpty ? nil : endpointURL
             existing.modelID = modelID.isEmpty ? nil : modelID
+            existing.apiKey = selectedType.supportsAPIKey ? apiKey : ""
             existing.isEnabled = isEnabled
             existing.temperature = temperature
             existing.systemPrompt = systemPrompt
@@ -302,14 +333,12 @@ struct EngineEditSheet: View {
                 engineType: selectedType,
                 endpointURL: endpointURL.isEmpty ? nil : endpointURL,
                 modelID: modelID.isEmpty ? nil : modelID,
+                apiKey: selectedType.supportsAPIKey ? apiKey : "",
                 isEnabled: isEnabled,
                 temperature: temperature,
                 systemPrompt: systemPrompt,
                 customPrompt: customPrompt
             )
-        }
-        if selectedType.requiresAPIKey && !apiKey.isEmpty {
-            try? KeychainHelper.save(key: config.id.uuidString, value: apiKey)
         }
         onSave(config)
         dismiss()

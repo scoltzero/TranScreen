@@ -1,26 +1,62 @@
 import Foundation
 
-struct GeminiEngine: TranslationEngine {
-    let engineType = EngineType.gemini
+struct GoogleCompatibleEngine: TranslationEngine {
+    let engineType = EngineType.googleCompatible
     let configID: UUID
+    let endpoint: String
     let modelID: String
+    let apiKey: String
     let temperature: Double
     let systemPrompt: String
     let customPrompt: String
 
     init(config: EngineConfig) throws {
         self.configID = config.id
-        self.modelID = config.modelID ?? "gemini-1.5-flash"
+        guard let ep = config.endpointURL, !ep.isEmpty else {
+            throw TranslationError.invalidEndpoint
+        }
+        guard let model = config.modelID, !model.isEmpty else {
+            throw TranslationError.missingModelID
+        }
+        self.endpoint = ep
+        self.modelID = model
+        self.apiKey = config.apiKey
         self.temperature = config.temperature
         self.systemPrompt = config.systemPrompt
         self.customPrompt = config.customPrompt
     }
 
     private func loadAPIKey() throws -> String {
-        guard let key = try? KeychainHelper.load(key: configID.uuidString), !key.isEmpty else {
-            throw TranslationError.noAPIKey
+        return apiKey
+    }
+
+    private func generateContentURL(apiKey: String) throws -> URL {
+        var urlString = endpoint.trimmingCharacters(in: .whitespacesAndNewlines)
+        if urlString.contains("{model}") {
+            urlString = urlString.replacingOccurrences(of: "{model}", with: modelID)
+        } else if !urlString.contains(":generateContent") {
+            urlString = urlString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            if urlString.hasSuffix("/v1") || urlString.hasSuffix("/v1beta") {
+                urlString += "/models/\(modelID):generateContent"
+            } else {
+                urlString += "/v1beta/models/\(modelID):generateContent"
+            }
         }
-        return key
+
+        guard var components = URLComponents(string: urlString) else {
+            throw TranslationError.invalidEndpoint
+        }
+        if !apiKey.isEmpty {
+            var items = components.queryItems ?? []
+            if !items.contains(where: { $0.name == "key" }) {
+                items.append(URLQueryItem(name: "key", value: apiKey))
+            }
+            components.queryItems = items
+        }
+        guard let url = components.url else {
+            throw TranslationError.invalidEndpoint
+        }
+        return url
     }
 
     private func buildSystemPrompt(from sourceLang: String, to targetLang: String) -> String {
@@ -34,8 +70,7 @@ struct GeminiEngine: TranslationEngine {
 
     func translate(texts: [String], from sourceLang: String, to targetLang: String) async throws -> [String] {
         let apiKey = try loadAPIKey()
-        let urlString = "https://generativelanguage.googleapis.com/v1beta/models/\(modelID):generateContent?key=\(apiKey)"
-        guard let url = URL(string: urlString) else { throw TranslationError.invalidEndpoint }
+        let url = try generateContentURL(apiKey: apiKey)
 
         let numbered = texts.enumerated().map { "\($0.offset + 1). \($0.element)" }.joined(separator: "\n")
         let fullPrompt = "\(buildSystemPrompt(from: sourceLang, to: targetLang))\n\n\(numbered)"
@@ -48,12 +83,20 @@ struct GeminiEngine: TranslationEngine {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if !apiKey.isEmpty {
+            request.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
+            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         request.timeoutInterval = 30
 
         let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+        guard let http = response as? HTTPURLResponse else {
             throw TranslationError.networkError(URLError(.badServerResponse))
+        }
+        guard http.statusCode == 200 else {
+            let body = String(data: data, encoding: .utf8) ?? ""
+            throw TranslationError.invalidResponse("HTTP \(http.statusCode): \(body)")
         }
 
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],

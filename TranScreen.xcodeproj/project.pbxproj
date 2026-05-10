@@ -38,7 +38,6 @@
 		C938332EA1CB20C538B1DAC4 = {isa = PBXBuildFile; fileRef = 3B687948535909F24F56F35B; };
 		BB6CA0AB16766E6D135E2D6B = {isa = PBXBuildFile; fileRef = CA83A159D6ED1B7A084E63AB; };
 		EDF823F8D8A793BA604017FE = {isa = PBXBuildFile; fileRef = F2E3AFDB4D32D924B38FFA98; };
-		0E6A707FF2A2D004D28CC126 = {isa = PBXBuildFile; fileRef = A5E75CFD493212F423DA4F80; };
 		11B9AE3B3C02140B417B31F8 = {isa = PBXBuildFile; fileRef = EA0E89F17ADC9A83E4F37F1A; };
 		0CD9B0D3C8C62084034178E5 = {isa = PBXBuildFile; fileRef = CF6886AEBD2A51766088546A; };
 		29F2EA61697048D878233B9C = {isa = PBXBuildFile; fileRef = E138BEA6346E29F93E13A501; };
@@ -46,7 +45,6 @@
 		B22271B6B558682CD5021794 = {isa = PBXBuildFile; fileRef = D50C3ADB002F44BE49752635; };
 		5157EA0EDA336B0C3874E858 = {isa = PBXBuildFile; fileRef = 72DD1576815A0EA7C048E8A5; };
 		DB7F643BC9B7B7431AA2C6FD = {isa = PBXBuildFile; fileRef = 50461D7F70A10BFE338DDBA5; };
-		430D468460B87CF27B6F35B5 = {isa = PBXBuildFile; fileRef = 7845E3AF486672882B517084; };
 		8CEA6A1CCCA41416CE85797C = {isa = PBXBuildFile; fileRef = CA9925C2C316FF98D10D2374; };
 			F1E2D3C4B5A6789012345678 = {isa = PBXBuildFile; fileRef = E5A4B3C2D1F0987654321ABC; };
 			102FAEB3267645C99A5BB011 = {isa = PBXBuildFile; fileRef = AA1D27B968C24F5C9A0C0382; };
@@ -86,7 +84,6 @@
 		3B687948535909F24F56F35B = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = HotkeyManager.swift; path = HotkeyManager.swift; sourceTree = "<group>"; };
 		CA83A159D6ED1B7A084E63AB = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = HotkeyRecorder.swift; path = HotkeyRecorder.swift; sourceTree = "<group>"; };
 		F2E3AFDB4D32D924B38FFA98 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = HotkeyAction.swift; path = HotkeyAction.swift; sourceTree = "<group>"; };
-		A5E75CFD493212F423DA4F80 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = KeychainHelper.swift; path = KeychainHelper.swift; sourceTree = "<group>"; };
 		EA0E89F17ADC9A83E4F37F1A = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = EngineConfig.swift; path = EngineConfig.swift; sourceTree = "<group>"; };
 		CF6886AEBD2A51766088546A = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppSettings.swift; path = AppSettings.swift; sourceTree = "<group>"; };
 		E138BEA6346E29F93E13A501 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = HotkeyBinding.swift; path = HotkeyBinding.swift; sourceTree = "<group>"; };
@@ -94,7 +91,6 @@
 		D50C3ADB002F44BE49752635 = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ScreenCaptureKit.framework; path = System/Library/Frameworks/ScreenCaptureKit.framework; sourceTree = SDKROOT; };
 		72DD1576815A0EA7C048E8A5 = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Vision.framework; path = System/Library/Frameworks/Vision.framework; sourceTree = SDKROOT; };
 		50461D7F70A10BFE338DDBA5 = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Translation.framework; path = System/Library/Frameworks/Translation.framework; sourceTree = SDKROOT; };
-		7845E3AF486672882B517084 = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
 		CA9925C2C316FF98D10D2374 = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Carbon.framework; path = System/Library/Frameworks/Carbon.framework; sourceTree = SDKROOT; };
 		ED160D86F4F59187308C3B77 = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TranScreen.app; sourceTree = BUILT_PRODUCTS_DIR; };
 			E5A4B3C2D1F0987654321ABC = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = BackgroundSampler.swift; path = BackgroundSampler.swift; sourceTree = "<group>"; };
@@ -111,7 +107,6 @@
 				B22271B6B558682CD5021794,
 				5157EA0EDA336B0C3874E858,
 				DB7F643BC9B7B7431AA2C6FD,
-				430D468460B87CF27B6F35B5,
 				8CEA6A1CCCA41416CE85797C,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -147,7 +142,6 @@
 				460E850CD7484AE9D9B06619,
 				D83359C5F70FC29446B117BE,
 				8421455898E84AAC4E3A7D28,
-				1AFDF4828C0F0C38F5167E79,
 				AAC7DC5DCD23638D271D3093,
 				408FBE2D98A644B78B0C156A,
 			);
@@ -235,15 +229,6 @@
 			);
 			name = Hotkey;
 			path = Hotkey;
-			sourceTree = "<group>";
-		};
-		1AFDF4828C0F0C38F5167E79 = {
-			isa = PBXGroup;
-			children = (
-				A5E75CFD493212F423DA4F80,
-			);
-			name = Keychain;
-			path = Keychain;
 			sourceTree = "<group>";
 		};
 		AAC7DC5DCD23638D271D3093 = {
@@ -392,7 +377,6 @@
 				C938332EA1CB20C538B1DAC4,
 				BB6CA0AB16766E6D135E2D6B,
 				EDF823F8D8A793BA604017FE,
-				0E6A707FF2A2D004D28CC126,
 				11B9AE3B3C02140B417B31F8,
 				0CD9B0D3C8C62084034178E5,
 				29F2EA61697048D878233B9C,
