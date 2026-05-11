@@ -29,16 +29,25 @@ struct HotkeyRecorder: NSViewRepresentable {
 
 final class HotkeyRecorderView: NSView {
     private var localKeyMonitor: Any?
+    private var hasRecordedCurrentSession = false
+    private var pendingModifierChordWorkItem: DispatchWorkItem?
+    private var lastModifierDown: (modifier: CGEventFlags, held: CGEventFlags, time: TimeInterval)?
+
+    private let modifierChordDelay: TimeInterval = 0.28
+    private let modifierDoubleTapInterval: TimeInterval = 0.45
 
     var isRecording = false {
         didSet {
             needsDisplay = true
+            guard oldValue != isRecording else { return }
             if isRecording {
+                resetRecordingState()
                 installLocalKeyMonitor()
                 DispatchQueue.main.async { [weak self] in
                     self?.window?.makeFirstResponder(self)
                 }
             } else {
+                cancelPendingModifierChord()
                 removeLocalKeyMonitor()
             }
         }
@@ -91,7 +100,8 @@ final class HotkeyRecorderView: NSView {
     }
 
     private func recordKeyEvent(_ event: NSEvent) {
-        guard isRecording else { return }
+        guard isRecording, !hasRecordedCurrentSession else { return }
+        cancelPendingModifierChord()
 
         let keyCode = Int(event.keyCode)
         let modifierKeyCodes = [kVK_Command, kVK_Shift, kVK_Option, kVK_Control,
@@ -109,19 +119,87 @@ final class HotkeyRecorderView: NSView {
         let flags = event.modifierFlags.cgEventFlags.intersection(
             [.maskCommand, .maskShift, .maskAlternate, .maskControl]
         )
-        onSpecRecorded?(HotkeySpec(keyCode: keyCode, modifiers: flags))
+        finishRecording(HotkeySpec(keyCode: keyCode, modifiers: flags))
+    }
+
+    private func recordFlagsChanged(_ event: NSEvent) {
+        guard isRecording, !hasRecordedCurrentSession else { return }
+        let currentFlags = event.modifierFlags.cgEventFlags.normalizedHotkeyModifiers
+        let keyCode = Int(event.keyCode)
+        guard let changedModifier = HotkeySpec.modifierFlag(forKeyCode: keyCode) else {
+            return
+        }
+
+        if currentFlags.contains(changedModifier) {
+            let held = currentFlags.subtracting(changedModifier)
+            let now = ProcessInfo.processInfo.systemUptime
+
+            if let lastModifierDown,
+               lastModifierDown.modifier == changedModifier,
+               lastModifierDown.held == held,
+               now - lastModifierDown.time <= modifierDoubleTapInterval,
+               let spec = HotkeySpec.modifierDoubleTap(tappedModifier: changedModifier, heldModifiers: held) {
+                finishRecording(spec)
+                return
+            }
+
+            lastModifierDown = (changedModifier, held, now)
+        }
+
+        scheduleModifierChordRecording(for: currentFlags)
+    }
+
+    private func scheduleModifierChordRecording(for flags: CGEventFlags) {
+        cancelPendingModifierChord()
+
+        let normalized = flags.normalizedHotkeyModifiers
+        guard normalized.count >= 2 else { return }
+
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self, self.isRecording, !self.hasRecordedCurrentSession else { return }
+            self.finishRecording(HotkeySpec.modifierChord(normalized))
+        }
+        pendingModifierChordWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + modifierChordDelay, execute: workItem)
+    }
+
+    private func finishRecording(_ spec: HotkeySpec) {
+        guard isRecording, !hasRecordedCurrentSession else { return }
+        hasRecordedCurrentSession = true
+        cancelPendingModifierChord()
+        onSpecRecorded?(spec)
+    }
+
+    private func resetRecordingState() {
+        hasRecordedCurrentSession = false
+        lastModifierDown = nil
+        cancelPendingModifierChord()
+    }
+
+    private func cancelPendingModifierChord() {
+        pendingModifierChordWorkItem?.cancel()
+        pendingModifierChordWorkItem = nil
     }
 
     private func installLocalKeyMonitor() {
         removeLocalKeyMonitor()
-        localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+        localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { [weak self] event in
             guard let self, self.isRecording else { return event }
-            self.recordKeyEvent(event)
-            return nil
+            switch event.type {
+            case .keyDown:
+                self.recordKeyEvent(event)
+                return nil
+            case .flagsChanged:
+                self.recordFlagsChanged(event)
+                return event
+            default:
+                return event
+            }
         }
     }
 
     private func removeLocalKeyMonitor() {
+        cancelPendingModifierChord()
         if let localKeyMonitor {
             NSEvent.removeMonitor(localKeyMonitor)
             self.localKeyMonitor = nil

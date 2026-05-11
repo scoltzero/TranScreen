@@ -6,6 +6,13 @@ final class HotkeyManager {
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     private var bindings: [HotkeySpec: HotkeyAction] = [:]
+    private var currentModifierFlags = CGEventFlags()
+    private var pendingModifierChordTask: Task<Void, Never>?
+    private var lastModifierDown: (modifier: CGEventFlags, held: CGEventFlags, time: TimeInterval)?
+    private var firedModifierChordSpec: HotkeySpec?
+
+    private let modifierChordDelay: TimeInterval = 0.28
+    private let modifierDoubleTapInterval: TimeInterval = 0.45
 
     weak var appState: AppState?
 
@@ -41,6 +48,7 @@ final class HotkeyManager {
 
         let eventTypes: [CGEventType] = [
             .keyDown,
+            .flagsChanged,
             .scrollWheel,
             .leftMouseDown,
             .leftMouseUp,
@@ -79,6 +87,10 @@ final class HotkeyManager {
     }
 
     func unregister() {
+        cancelPendingModifierChord()
+        currentModifierFlags = []
+        lastModifierDown = nil
+        firedModifierChordSpec = nil
         if let tap = eventTap {
             CGEvent.tapEnable(tap: tap, enable: false)
             if let source = runLoopSource {
@@ -90,6 +102,11 @@ final class HotkeyManager {
     }
 
     private func handleEvent(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
+        if type == .flagsChanged {
+            handleModifierEvent(event)
+            return Unmanaged.passUnretained(event)
+        }
+
         if type == .scrollWheel ||
             type == .leftMouseDown || type == .leftMouseUp ||
             type == .rightMouseDown || type == .rightMouseUp ||
@@ -105,9 +122,10 @@ final class HotkeyManager {
         }
 
         guard type == .keyDown else { return Unmanaged.passUnretained(event) }
+        cancelPendingModifierChord()
 
         let keyCode = Int(event.getIntegerValueField(.keyboardEventKeycode))
-        let flags = event.flags.intersection([.maskCommand, .maskShift, .maskAlternate, .maskControl])
+        let flags = event.flags.normalizedHotkeyModifiers
         let spec = HotkeySpec(keyCode: keyCode, modifiers: flags)
 
         guard let action = bindings[spec] else {
@@ -122,6 +140,88 @@ final class HotkeyManager {
         }
 
         return nil
+    }
+
+    private func handleModifierEvent(_ event: CGEvent) {
+        let flags = event.flags.normalizedHotkeyModifiers
+        currentModifierFlags = flags
+        if let firedModifierChordSpec, firedModifierChordSpec.modifiers != flags {
+            self.firedModifierChordSpec = nil
+        }
+
+        let keyCode = Int(event.getIntegerValueField(.keyboardEventKeycode))
+        guard let changedModifier = HotkeySpec.modifierFlag(forKeyCode: keyCode) else {
+            if flags.count < 2 { cancelPendingModifierChord() }
+            return
+        }
+
+        if flags.contains(changedModifier) {
+            let held = flags.subtracting(changedModifier)
+            let now = ProcessInfo.processInfo.systemUptime
+
+            if let lastModifierDown,
+               lastModifierDown.modifier == changedModifier,
+               lastModifierDown.held == held,
+               now - lastModifierDown.time <= modifierDoubleTapInterval,
+               let doubleTapSpec = HotkeySpec.modifierDoubleTap(tappedModifier: changedModifier, heldModifiers: held),
+               let action = bindings[doubleTapSpec] {
+                cancelPendingModifierChord()
+                self.lastModifierDown = nil
+                DispatchQueue.main.async { [weak self] in
+                    self?.executeAction(action)
+                }
+                return
+            }
+
+            lastModifierDown = (changedModifier, held, now)
+        }
+
+        scheduleModifierChordAction(for: flags)
+    }
+
+    private func scheduleModifierChordAction(for flags: CGEventFlags) {
+        cancelPendingModifierChord()
+
+        let normalized = flags.normalizedHotkeyModifiers
+        guard normalized.count >= 2 else { return }
+
+        let spec = HotkeySpec.modifierChord(normalized)
+        guard let action = bindings[spec] else { return }
+        guard firedModifierChordSpec != spec else { return }
+
+        if !hasPotentialDoubleTapBinding(for: normalized) {
+            firedModifierChordSpec = spec
+            DispatchQueue.main.async { [weak self] in
+                self?.executeAction(action)
+            }
+            return
+        }
+
+        let delay = modifierChordDelay
+        pendingModifierChordTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled, let self, self.currentModifierFlags == normalized else { return }
+            self.firedModifierChordSpec = spec
+            self.executeAction(action)
+            self.pendingModifierChordTask = nil
+        }
+    }
+
+    private func hasPotentialDoubleTapBinding(for flags: CGEventFlags) -> Bool {
+        let normalized = flags.normalizedHotkeyModifiers
+        for modifier in normalized.individualModifiers {
+            let held = normalized.subtracting(modifier)
+            if let spec = HotkeySpec.modifierDoubleTap(tappedModifier: modifier, heldModifiers: held),
+               bindings[spec] != nil {
+                return true
+            }
+        }
+        return false
+    }
+
+    private func cancelPendingModifierChord() {
+        pendingModifierChordTask?.cancel()
+        pendingModifierChordTask = nil
     }
 
     @MainActor

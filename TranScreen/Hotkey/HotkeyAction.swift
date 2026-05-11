@@ -54,25 +54,99 @@ struct HotkeySpec: Codable, Equatable, Hashable {
     var keyCode: Int
     var modifiers: CGEventFlags
 
-    var isValid: Bool { keyCode >= 0 }
+    private static let modifierChordKeyCode = -1_001
+    private static let doubleTapControlKeyCode = -1_101
+    private static let doubleTapOptionKeyCode = -1_102
+    private static let doubleTapShiftKeyCode = -1_103
+    private static let doubleTapCommandKeyCode = -1_104
+
+    var isValid: Bool {
+        if keyCode >= 0 { return true }
+        if isModifierChord { return modifiers.normalizedHotkeyModifiers.count >= 2 }
+        if doubleTappedModifier != nil { return true }
+        return false
+    }
+
+    var isModifierChord: Bool { keyCode == Self.modifierChordKeyCode }
+
+    var doubleTappedModifier: CGEventFlags? {
+        switch keyCode {
+        case Self.doubleTapControlKeyCode: return .maskControl
+        case Self.doubleTapOptionKeyCode: return .maskAlternate
+        case Self.doubleTapShiftKeyCode: return .maskShift
+        case Self.doubleTapCommandKeyCode: return .maskCommand
+        default: return nil
+        }
+    }
+
+    static func modifierChord(_ modifiers: CGEventFlags) -> HotkeySpec {
+        HotkeySpec(keyCode: modifierChordKeyCode, modifiers: modifiers.normalizedHotkeyModifiers)
+    }
+
+    static func modifierDoubleTap(tappedModifier: CGEventFlags, heldModifiers: CGEventFlags) -> HotkeySpec? {
+        guard let keyCode = doubleTapKeyCode(for: tappedModifier) else { return nil }
+        return HotkeySpec(
+            keyCode: keyCode,
+            modifiers: heldModifiers.normalizedHotkeyModifiers.subtracting(tappedModifier)
+        )
+    }
+
+    static func modifierFlag(forKeyCode keyCode: Int) -> CGEventFlags? {
+        switch keyCode {
+        case kVK_Control, kVK_RightControl: return .maskControl
+        case kVK_Option, kVK_RightOption: return .maskAlternate
+        case kVK_Shift, kVK_RightShift: return .maskShift
+        case kVK_Command, kVK_RightCommand: return .maskCommand
+        default: return nil
+        }
+    }
+
+    private static func doubleTapKeyCode(for modifier: CGEventFlags) -> Int? {
+        switch modifier {
+        case .maskControl: return doubleTapControlKeyCode
+        case .maskAlternate: return doubleTapOptionKeyCode
+        case .maskShift: return doubleTapShiftKeyCode
+        case .maskCommand: return doubleTapCommandKeyCode
+        default: return nil
+        }
+    }
 
     func hash(into hasher: inout Hasher) {
         hasher.combine(keyCode)
-        hasher.combine(modifiers.rawValue)
+        hasher.combine(modifiers.normalizedHotkeyModifiers.rawValue)
     }
 
     static func == (lhs: HotkeySpec, rhs: HotkeySpec) -> Bool {
-        lhs.keyCode == rhs.keyCode && lhs.modifiers == rhs.modifiers
+        lhs.keyCode == rhs.keyCode &&
+            lhs.modifiers.normalizedHotkeyModifiers == rhs.modifiers.normalizedHotkeyModifiers
     }
 
     var displayString: String {
+        if isModifierChord {
+            return modifierSymbols(modifiers.normalizedHotkeyModifiers).joined()
+        }
+
+        if let tapped = doubleTappedModifier {
+            var parts = modifierSymbols(modifiers.normalizedHotkeyModifiers.subtracting(tapped))
+            let symbol = modifierSymbols(tapped).first ?? ""
+            parts.append(symbol)
+            parts.append(symbol)
+            return parts.joined()
+        }
+
         var parts: [String] = []
-        if modifiers.contains(.maskControl) { parts.append("⌃") }
-        if modifiers.contains(.maskAlternate) { parts.append("⌥") }
-        if modifiers.contains(.maskShift) { parts.append("⇧") }
-        if modifiers.contains(.maskCommand) { parts.append("⌘") }
+        parts.append(contentsOf: modifierSymbols(modifiers.normalizedHotkeyModifiers))
         parts.append(keyCodeToString(keyCode))
         return parts.joined()
+    }
+
+    private func modifierSymbols(_ flags: CGEventFlags) -> [String] {
+        var parts: [String] = []
+        if flags.contains(.maskControl) { parts.append("⌃") }
+        if flags.contains(.maskAlternate) { parts.append("⌥") }
+        if flags.contains(.maskShift) { parts.append("⇧") }
+        if flags.contains(.maskCommand) { parts.append("⌘") }
+        return parts
     }
 
     private func keyCodeToString(_ code: Int) -> String {
@@ -139,5 +213,33 @@ extension CGEventFlags: @retroactive Codable {
     public func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         try container.encode(rawValue)
+    }
+}
+
+extension CGEventFlags {
+    var normalizedHotkeyModifiers: CGEventFlags {
+        intersection([.maskCommand, .maskShift, .maskAlternate, .maskControl])
+    }
+
+    var count: Int {
+        var result = 0
+        if contains(.maskCommand) { result += 1 }
+        if contains(.maskShift) { result += 1 }
+        if contains(.maskAlternate) { result += 1 }
+        if contains(.maskControl) { result += 1 }
+        return result
+    }
+
+    var individualModifiers: [CGEventFlags] {
+        var result: [CGEventFlags] = []
+        if contains(.maskControl) { result.append(.maskControl) }
+        if contains(.maskAlternate) { result.append(.maskAlternate) }
+        if contains(.maskShift) { result.append(.maskShift) }
+        if contains(.maskCommand) { result.append(.maskCommand) }
+        return result
+    }
+
+    func subtracting(_ flag: CGEventFlags) -> CGEventFlags {
+        CGEventFlags(rawValue: rawValue & ~flag.rawValue)
     }
 }
