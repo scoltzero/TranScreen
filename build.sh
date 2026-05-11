@@ -32,6 +32,11 @@ ARCHIVE_PATH="$BUILD_DIR/TranScreen.xcarchive"
 EXPORT_OPTIONS="$BUILD_DIR/ExportOptions.plist"
 EXPORT_DIR="$BUILD_DIR/export"
 APP_PATH="$EXPORT_DIR/TranScreen.app"
+VERSION_SETTINGS=()
+
+if [ -n "${RELEASE_VERSION:-}" ]; then
+    VERSION_SETTINGS+=(MARKETING_VERSION="$RELEASE_VERSION")
+fi
 
 step() { printf "\n\033[1;34m==> %s\033[0m\n" "$*"; }
 
@@ -72,6 +77,7 @@ xcodebuild \
     CODE_SIGN_IDENTITY="Developer ID Application" \
     DEVELOPMENT_TEAM="$TEAM_ID" \
     OTHER_CODE_SIGN_FLAGS="--timestamp --options=runtime" \
+    "${VERSION_SETTINGS[@]}" \
     archive
 
 step "Exporting Developer ID signed app"

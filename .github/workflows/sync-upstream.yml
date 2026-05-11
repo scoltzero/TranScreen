@@ -1,11 +1,13 @@
 name: Sync Upstream Tags
 
 # Polls scoltzero/TranScreen for new tags and mirrors them here.
-# Mirroring a semver tag triggers .github/workflows/release.yml.
+# For each new semver tag, creates a fork-side release commit whose app source
+# comes from upstream while the signing workflow/scripts come from this fork.
+# Pushing that tag triggers .github/workflows/release.yml.
 
 on:
   schedule:
-    - cron: '17 * * * *'   # every hour at :17
+    - cron: '17,47 * * * *'   # every 30 minutes
   workflow_dispatch:
     inputs:
       force_tag:
@@ -15,7 +17,7 @@ on:
 env:
   UPSTREAM: https://github.com/scoltzero/TranScreen.git
   UPSTREAM_BRANCH: main
-  TAG_PATTERN: '^v[0-9]+\.[0-9]+\.[0-9]+'
+  TAG_PATTERN: '^v[0-9]+\.[0-9]+\.[0-9]+$'
 
 permissions:
   contents: write
@@ -64,15 +66,41 @@ jobs:
             candidates=$(git for-each-ref --format='%(refname:strip=3)' refs/tags/upstream/ | grep -E "$TAG_PATTERN" || true)
           fi
 
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
           new_count=0
           for tag in $candidates; do
-            if echo "$existing_tags" | grep -qx "$tag"; then
+            if ! echo "$tag" | grep -Eq "$TAG_PATTERN"; then
+              echo "::warning::Skipping $tag because it does not match $TAG_PATTERN"
+              continue
+            fi
+
+            if [ -z "${FORCE_TAG:-}" ] && echo "$existing_tags" | grep -qx "$tag"; then
               echo "= $tag already mirrored"
               continue
             fi
-            sha=$(git rev-parse "refs/tags/upstream/$tag")
-            echo "+ mirroring $tag ($sha)"
-            git tag -f "$tag" "$sha"
+
+            upstream_ref="refs/tags/upstream/$tag"
+            upstream_sha=$(git rev-parse "$upstream_ref")
+            echo "+ preparing signed-release tag $tag from upstream $upstream_sha"
+
+            git checkout -B "signed-release/$tag" "$upstream_ref"
+            git checkout "origin/$UPSTREAM_BRANCH" -- \
+              .github/workflows/release.yml \
+              build.sh \
+              docs/RELEASING.md
+            git add -f .github/workflows/release.yml build.sh docs/RELEASING.md
+
+            if ! git diff --cached --quiet; then
+              git commit -m "chore: prepare $tag signed release"
+            fi
+
+            release_sha=$(git rev-parse HEAD)
+            git tag -f "$tag" "$release_sha"
+            if [ -n "${FORCE_TAG:-}" ] && echo "$existing_tags" | grep -qx "$tag"; then
+              git push origin ":refs/tags/$tag"
+            fi
             git push origin "refs/tags/$tag"
             new_count=$((new_count + 1))
           done

@@ -31,6 +31,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
 
       - name: Select latest Xcode
         run: |
@@ -91,6 +93,7 @@ jobs:
         env:
           TEAM_ID: ${{ secrets.NOTARY_TEAM_ID }}
           NOTARY_PROFILE: transcreen-notary
+          RELEASE_VERSION: ${{ steps.ver.outputs.version }}
         run: |
           chmod +x ./build.sh
           ./build.sh
