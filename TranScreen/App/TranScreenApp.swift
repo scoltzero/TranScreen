@@ -20,7 +20,7 @@ struct TranScreenApp: App {
     }()
 
     var body: some Scene {
-        MenuBarExtra("TranScreen", systemImage: "character.bubble") {
+        MenuBarExtra("TranScreen", image: "MenuBarIcon") {
             MenuBarView()
                 .environmentObject(appState)
                 .modelContainer(sharedModelContainer)

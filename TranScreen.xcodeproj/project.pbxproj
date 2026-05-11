@@ -52,6 +52,7 @@
 			999F4FE17BFE4AFD9F1CCEA3 = {isa = PBXBuildFile; fileRef = C9705F858B5948F6B99F1A3A; };
 		A10000000000000000000001 = {isa = PBXBuildFile; fileRef = A20000000000000000000001; };
 		A10000000000000000000002 = {isa = PBXBuildFile; fileRef = A30000000000000000000001; };
+		A10000000000000000000003 = {isa = PBXBuildFile; fileRef = A20000000000000000000002; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -108,6 +109,7 @@
 		A40000000000000000000006 = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = fr; path = "fr.lproj/Localizable.strings"; sourceTree = "<group>"; };
 		A40000000000000000000007 = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = de; path = "de.lproj/Localizable.strings"; sourceTree = "<group>"; };
 		A40000000000000000000008 = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = hi; path = "hi.lproj/Localizable.strings"; sourceTree = "<group>"; };
+		A20000000000000000000002 = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Assets.xcassets; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -284,6 +286,7 @@
 		408FBE2D98A644B78B0C156A = {
 			isa = PBXGroup;
 			children = (
+				A20000000000000000000002,
 				A30000000000000000000001,
 			);
 			name = Resources;
@@ -355,6 +358,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A10000000000000000000003,
 				A10000000000000000000002,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
