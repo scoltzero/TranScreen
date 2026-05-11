@@ -11,5 +11,16 @@ docs/.DS_Store
 !TranScreen
 !TranScreen/**
 !.gitignore
+!build.sh
+!.github
+!.github/**
 TranScreen.xcodeproj/xcuserdata/
 TranScreen.xcodeproj/project.xcworkspace/xcuserdata/
+
+# Build artifacts and signing material — never commit
+build/
+*.dmg
+*.xcarchive
+*.p12
+*.cer
+*.mobileprovision
